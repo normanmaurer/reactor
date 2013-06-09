@@ -31,7 +31,7 @@ ext {
 	// Libraries
 	disruptorVersion = '3.0.1'
 	springVersion = '3.2.3.RELEASE'
-	nettyVersion = '4.0.0.Alpha8'
+	nettyVersion = '4.0.0.Final-SNAPSHOT'
 	jacksonDatabindVersion = '2.2.1'
 	hadoopVersion = '1.1.2'
 
@@ -196,7 +196,7 @@ project('reactor-tcp') {
 	dependencies {
 		compile project(':reactor-core')
 
-		compile "io.netty:netty:$nettyVersion"
+		compile "io.netty:netty-all:$nettyVersion"
 		compile("com.fasterxml.jackson.core:jackson-databind:$jacksonDatabindVersion", optional)
 		compile("org.apache.hadoop:hadoop-client:$hadoopVersion", optional)
 

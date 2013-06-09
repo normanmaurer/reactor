@@ -1,12 +1,14 @@
 package reactor.tcp.syslog;
 
 import io.netty.bootstrap.ServerBootstrap;
+import io.netty.buffer.ByteBuf;
 import io.netty.channel.*;
 import io.netty.channel.socket.SocketChannel;
-import io.netty.channel.socket.nio.NioEventLoopGroup;
+import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.handler.codec.DelimiterBasedFrameDecoder;
 import io.netty.handler.codec.Delimiters;
+import io.netty.handler.codec.LineBasedFrameDecoder;
 import io.netty.handler.codec.MessageToMessageDecoder;
 import io.netty.handler.codec.string.StringDecoder;
 import org.apache.hadoop.conf.Configuration;
@@ -37,7 +39,6 @@ import static org.hamcrest.Matchers.is;
 /**
  * @author Jon Brisbin
  */
-@Ignore
 public class SyslogTcpServerTests {
 
 	static final byte[] SYSLOG_MESSAGE_DATA = "<34>Oct 11 22:14:15 mymachine su: 'su root' failed for lonvick on /dev/pts/8\n".getBytes();
@@ -74,24 +75,38 @@ public class SyslogTcpServerTests {
 			 @Override
 			 public void initChannel(SocketChannel ch) throws Exception {
 				 ChannelPipeline pipeline = ch.pipeline();
-				 pipeline.addLast("framer", new DelimiterBasedFrameDecoder(8192, Delimiters.lineDelimiter()));
-				 pipeline.addLast("decoder", new StringDecoder());
-				 pipeline.addLast("syslogDecoder", new MessageToMessageDecoder<String, SyslogMessage>() {
+				 pipeline.addLast("framer", new LineBasedFrameDecoder(8192, false, false));
+				 pipeline.addLast("syslogDecoder", new MessageToMessageDecoder<ByteBuf>() {
 					 Function<Buffer, SyslogMessage> decoder = new SyslogCodec().decoder(null, null);
 
 					 @Override
-					 public SyslogMessage decode(ChannelHandlerContext ctx, String msg) throws Exception {
-						 return decoder.apply(Buffer.wrap(msg + "\n"));
+					 public void decode(ChannelHandlerContext ctx, ByteBuf msg, MessageList<Object> out) throws Exception {
+                         ByteBuffer buffer = msg.nioBuffer();
+                         int position = buffer.position();
+                         SyslogMessage syslogMessage = decoder.apply(new Buffer(buffer));
+                         int read = buffer.position() - position;
+                         msg.readerIndex(msg.readerIndex() + read);
+				         out.add(syslogMessage);
 					 }
 				 });
-				 pipeline.addLast("handler", new ChannelInboundMessageHandlerAdapter<SyslogMessage>() {
+				 pipeline.addLast("handler", new ChannelInboundHandlerAdapter() {
 
-					 @Override
-					 public void messageReceived(ChannelHandlerContext ctx, SyslogMessage msg) throws Exception {
-						 latch.countDown();
-						 hdfs.accept(msg);
-					 }
-				 });
+                     @Override
+                     public void messageReceived(ChannelHandlerContext ctx, MessageList<Object> msgs) throws Exception {
+                         MessageList<SyslogMessage> cast = msgs.cast();
+                         for (int i = 0; i < cast.size(); i++) {
+                             latch.countDown();
+                             hdfs.accept(cast.get(i));
+                         }
+                         msgs.releaseAllAndRecycle();
+                     }
+
+                     @Override
+                     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
+                         cause.printStackTrace();
+                         ctx.close();
+                     }
+                 });
 			 }
 		 });
 

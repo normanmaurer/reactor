@@ -3,8 +3,8 @@ package reactor.tcp.netty;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.*;
+import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
-import io.netty.channel.socket.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,7 +22,6 @@ import reactor.tcp.encoding.Codec;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.util.Collection;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * @author Jon Brisbin
@@ -116,20 +115,18 @@ public class NettyTcpServer<IN, OUT> extends TcpServer<IN, OUT> {
 	protected ChannelHandler[] createChannelHandlers(SocketChannel ch) {
 		final NettyTcpConnection<IN, OUT> conn = (NettyTcpConnection<IN, OUT>) select(ch);
 
-		ChannelHandler readHandler = new ChannelInboundByteHandlerAdapter() {
-			AtomicInteger counter = new AtomicInteger();
-
-			@Override
-			public void inboundBufferUpdated(ChannelHandlerContext ctx, ByteBuf data) throws Exception {
-				int len = data.readableBytes();
-				Buffer b = new Buffer(data.nioBuffer());
-				conn.read(b);
-
-				if (counter.incrementAndGet() % memReclaimRatio == 0) {
-					data.clear();
-				}
-			}
-		};
+		ChannelHandler readHandler = new ChannelInboundHandlerAdapter() {
+            @Override
+            public void messageReceived(ChannelHandlerContext ctx, MessageList<Object> msgs) throws Exception {
+                MessageList<ByteBuf> cast = msgs.cast();
+                for (int i = 0; i < cast.size(); i++) {
+                    ByteBuf data = cast.get(i);
+                    Buffer b = new Buffer(data.nioBuffer());
+                    conn.read(b);
+                }
+                msgs.releaseAllAndRecycle();
+            }
+        };
 		return new ChannelHandler[]{readHandler};
 	}
 
@@ -181,11 +178,11 @@ public class NettyTcpServer<IN, OUT> extends TcpServer<IN, OUT> {
 		}
 	}
 
-	private static class LoggingHandler extends ChannelHandlerAdapter {
+	private static class LoggingHandler extends ChannelOutboundHandlerAdapter {
 		private final Logger LOG = LoggerFactory.getLogger(NettyTcpServer.class);
 
 		@Override
-		public void bind(ChannelHandlerContext ctx, SocketAddress localAddress, ChannelFuture future) throws Exception {
+		public void bind(ChannelHandlerContext ctx, SocketAddress localAddress, ChannelPromise future) throws Exception {
 			if (LOG.isInfoEnabled()) {
 				LOG.info("BIND {}", localAddress);
 			}
@@ -193,7 +190,7 @@ public class NettyTcpServer<IN, OUT> extends TcpServer<IN, OUT> {
 		}
 
 		@Override
-		public void connect(ChannelHandlerContext ctx, SocketAddress remoteAddress, SocketAddress localAddress, ChannelFuture future) throws Exception {
+		public void connect(ChannelHandlerContext ctx, SocketAddress remoteAddress, SocketAddress localAddress, ChannelPromise future) throws Exception {
 			if (LOG.isDebugEnabled()) {
 				LOG.debug("CONNECT {}", remoteAddress);
 			}
