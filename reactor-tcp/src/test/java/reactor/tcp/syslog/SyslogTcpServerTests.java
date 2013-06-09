@@ -60,8 +60,8 @@ public class SyslogTcpServerTests {
 
 	@Test
 	public void testSyslogServer() throws InterruptedException, IOException {
-		EventLoopGroup bossGroup = new NioEventLoopGroup(2);
-		EventLoopGroup workerGroup = new NioEventLoopGroup(4);
+		EventLoopGroup bossGroup = new NioEventLoopGroup(Environment.PROCESSORS / 2);
+		EventLoopGroup workerGroup = new NioEventLoopGroup( Environment.PROCESSORS);
 
 		Configuration conf = new Configuration();
 		conf.addResource("/usr/local/Cellar/hadoop/1.1.2/libexec/conf/core-site.xml");
@@ -69,6 +69,9 @@ public class SyslogTcpServerTests {
 
 		ServerBootstrap b = new ServerBootstrap();
 		b.group(bossGroup, workerGroup)
+         .option(ChannelOption.SO_BACKLOG, 512)
+         .option(ChannelOption.SO_RCVBUF, 8 * 1024)
+         .option(ChannelOption.SO_SNDBUF, 8 * 1024)
 		 .localAddress(3000)
 		 .channel(NioServerSocketChannel.class)
 		 .childHandler(new ChannelInitializer<SocketChannel>() {
@@ -135,6 +138,7 @@ public class SyslogTcpServerTests {
 		Configuration conf = new Configuration();
 		conf.addResource("/usr/local/Cellar/hadoop/1.1.2/libexec/conf/core-site.xml");
 		final HdfsConsumer hdfs = new HdfsConsumer(conf, "loadtests", "syslog");
+
 
 		TcpServer<SyslogMessage, Void> server = new TcpServer.Spec<SyslogMessage, Void>(NettyTcpServer.class)
 				.using(env)
